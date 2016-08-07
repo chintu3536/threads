@@ -147,7 +147,13 @@ int main(int argc, char *argv[]){
 }
 
 void recv_file(int sockfd){
-	
+	ssize_t recvd_bytes, recvd_file_size=0;
+	char recv_str[MAX_BUF];
+	while((recvd_bytes=recv(sockfd, recv_str, MAX_BUF, 0))>0){
+		recvd_file_size+=recvd_bytes;
+	}
+	cout<<recvd_file_size<<endl;
+	return;
 }
 
 void *getFile(void *thread_arg){
