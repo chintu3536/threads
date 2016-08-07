@@ -7,14 +7,32 @@
 #include <netdb.h> 
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <chrono>
+#include <unistd.h>
 
 using namespace std;
 
+class Timer
+{
+public:
+    Timer() : beg_(clock_::now()) {}
+    void reset() { beg_ = clock_::now(); }
+    double elapsed() const { 
+        return std::chrono::duration_cast<second_>
+            (clock_::now() - beg_).count(); }
+
+private:
+    typedef std::chrono::high_resolution_clock clock_;
+    typedef std::chrono::duration<double, std::ratio<1> > second_;
+    std::chrono::time_point<clock_> beg_;
+};
+
 struct  thread_data
 {
-	int sockfd, thread_id;
+	double total_time, sleep_time;
 	double latency, throughput;
-	bool sleep=0;
+	sockaddr_in server_addr;
+
 };
 
 void *getFile(void *sockfd);
@@ -23,6 +41,8 @@ int main(int argc, char *argv[]){
 
 	int port_no, NumThr;
 	int * sockfd;
+
+	double total_time, sleep_time;
 
 	string ip;
 
@@ -50,6 +70,10 @@ int main(int argc, char *argv[]){
 	/* Number of threads that should be created*/
 	NumThr = stoul(argv[3], nullptr, 0);
 
+	total_time = atoi(argv[4]);
+
+	sleep_time = atoi(argv[5]);
+
 	type = argv[6];
 
 	/* Declaring an array of socke file descriptors, one for each thread*/
@@ -75,65 +99,19 @@ int main(int argc, char *argv[]){
 	server_addr.sin_addr.s_addr = inet_addr(ip.c_str());	
 
 	/*
-
 	Need clarification	*/
 	memset(&(server_addr.sin_zero), '\0', 8);
-		
-
 	/*/
 
 
-	/* Connect to server_addr 'NumThr' times by creating 'NumThr' threads*/
+	/* Creating 'NumThr' number of clients*/
 	for(int i=0;i<NumThr;i++){
+		td[i].server_addr = server_addr;
+		td[i].total_time = total_time;
+		td[i].sleep_time = sleep_time;
+		pthread_create(&threads[i], NULL,  getFile, (void *)&td[i]);
 
-		/* Wait until server is connected to a client*/
-		while(true){
-
-			/* Creating a socket of type stream socket */
-			td[i].sockfd = socket(AF_INET, SOCK_STREAM, 0);
-			if(td[i].sockfd<0){
-				cout<<"Error opening socket\n";
-				return 0;
-			}
-
-			/* trying to connect to the server */
-			int res = connect(td[i].sockfd, (struct sockaddr*) &server_addr, sizeof(struct sockaddr));
-			if(res == 0){  // Connected
-
-				td[i].thread_id = i;
-
-				/* Creating a thread for a client by passing sockfd[i] as parameter, so that it can communicate with server independently*/
-				pthread_create(&threads[i], NULL,  getFile, (void *)&td[i]);
-
-				/* One client connected to server, exit the while loop and create another client */
-				break;
-			}
-			else{
-
-			}
-		}
-		
 	}
-
-	/*int active=NumThr;
-	while(active>0){
-		for(int i=0;i<NumThr;i++){
-			if(td[i].active)
-			if(td[i].sleep==1){
-				td[i].sockfd = socket(AF_INET, SOCK_STREAM, 0);
-				if(td[i].sockfd<0){
-					cout<<"Error opening socket\n";
-					return 0;
-				}
-				int res = connect(td[i].sockfd, (struct sockaddr*) &server_addr, sizeof(struct sockaddr));
-				if(res == 0){ // connected
-					td[i].sleep=0;
-				}
-			}
-			
-		}
-	}*/
-
 
 	for(int i=0;i<NumThr;i++){
 		pthread_join(threads[i], NULL);
@@ -142,14 +120,31 @@ int main(int argc, char *argv[]){
 	return 0;
 }
 
+
 void *getFile(void *thread_arg){
 	thread_data *data;
 	data = (struct thread_data *) thread_arg;
-	int sockfd = data->sockfd;
-	int thread_id = data->thread_id;
 	string message;
 
+	Timer timer;
+	double tim, response_time;
+	int round=0;
+	timer.reset();
 	while(true){	
+
+		/* Open a socket and connect to the server*/
+		Timer file_timer;
+		double file_time;
+		file_timer.reset();
+		int sockfd=socket(PF_INET, SOCK_STREAM, 0);
+		while(true){
+			cout<<data->sleep_time<<endl;
+			int res = connect(sockfd, (struct sockaddr *) &data->server_addr, sizeof(struct sockaddr));
+			if(res == 0){
+				break;
+			}
+		}
+
 		int i=0;
 		message = "get files/foo"+to_string(i)+".txt";
 		cout<<message<<endl;break;
@@ -158,6 +153,15 @@ void *getFile(void *thread_arg){
 		send(sockfd, mes, message.length(), 0);
 		//recv(sockfd, , 512, 0)
 		/* Need editing */
+		close(sockfd);
+		file_time = file_timer.elapsed();
+		response_time += file_time;
+		round++;
+		tim = timer.elapsed();
+		if(tim>=data->total_time){
+			break;
+		}
 	}
+	data->latency = response_time/round;
 	pthread_exit(NULL);
 }
