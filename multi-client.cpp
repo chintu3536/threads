@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <chrono>
 #include <unistd.h>
+#include <random>
 
 using namespace std;
 
@@ -30,11 +31,14 @@ private:
 struct  thread_data
 {
 	double total_time, sleep_time;
-	double latency, throughput;
+	double latency;
+	int NumFiles;
+	string type;
 	sockaddr_in server_addr;
 
 };
 
+void recv_file(int sockfd);
 void *getFile(void *sockfd);
 
 int main(int argc, char *argv[]){
@@ -101,35 +105,65 @@ int main(int argc, char *argv[]){
 	/*
 	Need clarification	*/
 	memset(&(server_addr.sin_zero), '\0', 8);
-	/*/
-
+	/**/
+	
 
 	/* Creating 'NumThr' number of clients*/
 	for(int i=0;i<NumThr;i++){
 		td[i].server_addr = server_addr;
 		td[i].total_time = total_time;
 		td[i].sleep_time = sleep_time;
+		td[i].type = type;
 		pthread_create(&threads[i], NULL,  getFile, (void *)&td[i]);
 
 	}
 
+
+	Timer file_request;
+	file_request.reset();
 	for(int i=0;i<NumThr;i++){
 		pthread_join(threads[i], NULL);
 	}
+	double Exp_Time;
+	Exp_Time=file_request.elapsed();
+
+	cout<<"Done"<<endl;
+
+
+	double tot_latency=0, totNum_files=0;
+	for(int i=0;i<NumThr;i++){
+		tot_latency+= td[i].latency;
+		totNum_files+= td[i].NumFiles;
+	}
+
+	double avg_throughput = totNum_files/Exp_Time;
+	cout<<"throughput = "<<avg_throughput<<" req/s"<<endl;
+
+	double avg_latency=tot_latency/NumThr;
+	cout<<"average response time = "<<avg_latency<<" sec"<<endl;
+
 
 	return 0;
 }
 
+void recv_file(int sockfd){
+	
+}
 
 void *getFile(void *thread_arg){
 	thread_data *data;
 	data = (struct thread_data *) thread_arg;
 	string message;
-
+	int i;
 	Timer timer;
 	double tim, response_time;
-	int round=0;
+	int Round=0;
 	timer.reset();
+
+	std::random_device rd;     // only used once to initialise (seed) engine
+	std::mt19937 gen(rd());    // random-number engine used (Mersenne-Twister in this case)
+	std::uniform_int_distribution<int> dis(0, 9999); // guaranteed unbiased
+
 	while(true){	
 
 		/* Open a socket and connect to the server*/
@@ -145,23 +179,37 @@ void *getFile(void *thread_arg){
 			}
 		}
 
-		int i=0;
+		if(data->type == "random"){
+			i= dis(gen);
+		}
+		else{
+			if(data->type == "fixed"){
+				i=0;
+			}
+			else{
+				perror("type not defined");
+				exit(0);
+			}
+		}
 		message = "get files/foo"+to_string(i)+".txt";
 		cout<<message<<endl;break;
 		const char *mes;
 		mes = message.c_str();
 		send(sockfd, mes, message.length(), 0);
-		//recv(sockfd, , 512, 0)
-		/* Need editing */
-		close(sockfd);
+		recv_file(sockfd);
+		if(close(sockfd)<0){
+			perror("socket close error");
+			exit(EXIT_FAILURE);
+		}
 		file_time = file_timer.elapsed();
 		response_time += file_time;
-		round++;
+		Round++;
 		tim = timer.elapsed();
-		if(tim>=data->total_time){
+		if(tim>=data->total_time){	
+			data->NumFiles = Round;
 			break;
 		}
 	}
-	data->latency = response_time/round;
+	data->latency = response_time/Round;
 	pthread_exit(NULL);
 }
